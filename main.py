@@ -14,7 +14,6 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import datetime
 from scipy import interpolate
 import numpy as np
-# from PID import PID
 from simple_pid import PID
 
 
@@ -99,7 +98,6 @@ class BakingLogGui(Ui_MainWindow):
         self.button1.setCheckable(True)
         self.button1.toggle()
         layoutT.addWidget(self.button1)
-        # self.autoscale_T = True
 
         layoutT.addWidget(toolbarT)
         layoutT.addWidget(self.canvasT)
@@ -114,14 +112,12 @@ class BakingLogGui(Ui_MainWindow):
 
         self.current_button = QPushButton('Toggle Current')
         self.current_button.setCheckable(True)
-        # self.current_button.toggle()
         layoutP.addWidget(self.current_button)
 
         self.button2 = QPushButton('Toggle Autoscaling')
         self.button2.setCheckable(True)
         self.button2.toggle()
         layoutP.addWidget(self.button2)
-        # self.autoscale_P = True
 
         layoutP.addWidget(toolbarP)
         layoutP.addWidget(self.canvasP)
@@ -148,13 +144,9 @@ class BakingLogGui(Ui_MainWindow):
 
         # Feedback loop parameters
         self.setPointInput.setText('70')
-        self.target_temp = 70
-        self.step_size = [0.1, 0.3]
-
+        self.target_temp = int(self.setPointInput.text())
         self.pid = PID(100.0, 0.6, 5.0, setpoint=self.target_temp)
-        self.pid.output_limits = (0, 4095)
-        # self.pid.setPoint(70.0)
-        # self.pid.setPoint(50.0)
+        self.pid.output_limits = (0, 1637)
 
     # Read channel switches from file
     def read_channel_switches(self):
@@ -211,14 +203,13 @@ class BakingLogGui(Ui_MainWindow):
             f.write('time\tT1\tT2\tT3\tT4\tT5\tT6\tP\n')
 
     def get_arduino(self, v):
-        # v = [vv / 2 ** self.bitdepth * self.maxVoltage for vv in v[:-1]] + [
-        #     v[-1]]  # convert from arduino result to real voltage (V)
         v = [vv / 2 ** self.bitdepth * self.maxVoltage for vv in v]  # convert from arduino result to real voltage (V)
-        # print((v[1] - self.offset[1]) / self.gain[1])
-        # T = self.f(v)
-        t = time.time() - self.t0
+
+        t = time.time() - self.t0   # current time
         print('Time: ' + str(t))
         s = str(t) + '\t'
+
+        # Loop through the temperature channels and record the data
         for i in range(self.channelNum):
             if self.channelSwitches[i] > 0:
                 self.channelData[i][0] += [t]
@@ -228,21 +219,17 @@ class BakingLogGui(Ui_MainWindow):
             else:
                 s += "-1"
             s += '\t'
-        # if v[-1]:
-        #     self.pressureData[0] += [t]
-        #     self.pressureData[1] += [v[-1]]
-        #     s += str(v[-1])
-        # else:
-        #     s += "-1"
         s += '\n'
         with open(self.dataFileName, "a") as f:
             f.write(s)
 
     def update_current(self, m):
+        # Set the set point based on the text input on the gui
         if len(self.setPointInput.text()) > 1:
             self.target_temp = int(self.setPointInput.text())
             self.pid.setpoint = self.target_temp
 
+        # Toggle between which DAC is active
         if self.port_button.isChecked():
             self.port_button.setText('DAC0 Active')
             self.dac = 0
@@ -252,43 +239,45 @@ class BakingLogGui(Ui_MainWindow):
         if self.prev_port != self.dac:
             self.pressureData = [[], []]
             self.prev_port = self.dac
+
         print('Temperature: ' + str(self.channelData[self.dac][1][-1]))
         print('Target Temp: ' + str(self.target_temp))
+
         self.pressureData[0].append(self.channelData[self.dac][0][-1])
         if len(self.pressureData[1]) > 0:
-            # direction = (self.target_temp - self.channelData[self.dac][1][-1])
-            # direction = direction / abs(direction)
-            # change = self.step_size[1] * direction * (math.e ** (self.step_size[0] * abs(self.target_temp - self.channelData[self.dac][1][-1])))
             if self.current_button.isChecked():
                 self.current_button.setText('Current Enabled')
 
+                # Find a linear fit for the last 30 data points
                 past_time = -1 * min(len(self.channelData[self.dac][0]), 30)
                 coeffs = np.polyfit(self.channelData[self.dac][0][past_time:], self.channelData[self.dac][1][past_time:], 1)
 
+                # Use the linear fit  to predict the temperature 15 seconds in the future (since temperature has a
+                # delayed response)
                 future_t = self.channelData[self.dac][0][-1] + 15
                 pval = coeffs[0] * future_t + coeffs[1]
 
+                # Calculate the new current using pid
                 change = self.pid(pval)
             else:
                 self.current_button.setText('Current Disabled')
                 change = 0
-            # if abs(change) < 1:
-            #     change = change / abs(change)
 
-            # self.pressureData[1].append((change + self.pressureData[1][-1]))
-
+            # Update the record of currents with the new current
             self.pressureData[1].append(change)
-            # self.pressureData[1].append(int(math.sin(time.time() / 5) * 1000) + 2000)
         else:
             self.pressureData[1].append(0)
-        if self.pressureData[1][-1] > 4095 or self.pressureData[1][-1] < 0:
+
+        # Enforce boundaries on the current to avoid negative or too high current
+        if self.pressureData[1][-1] > 1637 or self.pressureData[1][-1] < 0:
             print('current bounds exceeded')
-        # print('Current: ' + str(self.pressureData[1][-1]))
-        self.pressureData[1][-1] = max(min((self.pressureData[1][-1]), 4095), 0)
+        self.pressureData[1][-1] = max(min((self.pressureData[1][-1]), 1637), 0)
         print('Current: ' + str(self.pressureData[1][-1]))
 
+        # Update the output value to reflect the new current (and add 4096 to reflect dac1, if applicable)
         m.current_value = int(self.pressureData[1][-1] + self.dac * 4096)
-        # print()
+
+        # Update plots to reflect the new data
         self.update_plot()
 
     # Todo: radio buttons and spin boxes
@@ -321,13 +310,10 @@ class BakingLogGui(Ui_MainWindow):
                 self.canvasP.axes.cla()
 
                 # Plot the current data
-                # if len(self.pressureData[1]) > 0:
-                # self.canvasP.axes.plot(self.pressureData[0], self.pressureData[1])
                 self.canvasP.axes.plot(self.pressureData[0], [x / 409.5 for x in self.pressureData[1]])
 
                 # set the lower x bound and finish building the graph
                 self.canvasP.axes.set_xbound(lower=0)
-                # self.canvasP.axes.legend()
                 self.canvasP.axes.set_xlabel("time (s)")
                 self.canvasP.axes.set_title("Current (A)")
                 self.canvasP.draw()
@@ -366,17 +352,13 @@ class BakingLogGui(Ui_MainWindow):
             # Reset the data and update the labels
             if len(self.pressureData[1]) > 0:
                 line = self.canvasP.axes.get_lines()[0]
-                # line.set_data(self.pressureData[0], self.pressureData[1])
                 line.set_data(self.pressureData[0], [x / 409.5 for x in self.pressureData[1]])
-                # self.canvasP.axes.legend(["I:" + "%.0f" % self.pressureData[1][-1]])
                 self.canvasP.axes.legend(["I: " + "%.3f" % (self.pressureData[1][-1] / 409.5) + "A"])
 
                 # Update scaling if the pressure autoscale is toggled
                 if self.button2.isChecked():
                     self.button2.setText('Autoscaling Enabled')
                     self.canvasP.axes.set_xbound(lower=0, upper=max(self.pressureData[0]) * 1.05)
-                    # y_max = max(self.pressureData[1])
-                    # y_min = min(self.pressureData[1])
                     y_max = max([x / 409.5 for x in self.pressureData[1]])
                     y_min = min([x / 409.5 for x in self.pressureData[1]])
                     if y_max != y_min:
