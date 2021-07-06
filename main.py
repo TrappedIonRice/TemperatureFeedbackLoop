@@ -25,6 +25,7 @@ class MplCanvas(FigureCanvas):
         super(MplCanvas, self).__init__(fig)
 
 
+# Map the measured voltage in the thermocouple to a temperature
 def k_type_fit():
     volt = []
     with open("k-type-table.txt", "r") as f:
