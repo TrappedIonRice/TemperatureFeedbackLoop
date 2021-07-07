@@ -10,7 +10,8 @@ class SerialManagerArduino(QtCore.QObject):
     def __init__(self, check_fn, parent=None):
         super().__init__(parent)
 
-        self.serial_port = QtSerialPort.QSerialPort("COM11")
+        # Change the COM port for each computer this program is run on (since the arduino may have a different port)
+        self.serial_port = QtSerialPort.QSerialPort("COM9")
         self.serial_port.setBaudRate(QtSerialPort.QSerialPort.Baud9600)
         self.serial_port.errorOccurred.connect(self.handle_error)
         self.serial_port.readyRead.connect(self.handle_ready_read)

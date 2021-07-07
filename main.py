@@ -144,10 +144,11 @@ class BakingLogGui(Ui_MainWindow):
         self.offset = [-6.32907620e-02, -0.0699907, -0.076, -0.076, -0.076, -0.076]
 
         # Feedback loop parameters
-        self.setPointInput.setText('70')
+        self.setPointInput.setText('200')
         self.target_temp = int(self.setPointInput.text())
+        self.max_current = 4.15
         self.pid = PID(100.0, 0.6, 5.0, setpoint=self.target_temp)
-        self.pid.output_limits = (0, 1637)
+        self.pid.output_limits = (0, self.max_current / 10 * 4096)
 
     # Read channel switches from file
     def read_channel_switches(self):
@@ -249,17 +250,22 @@ class BakingLogGui(Ui_MainWindow):
             if self.current_button.isChecked():
                 self.current_button.setText('Current Enabled')
 
+                # This commented block of code is for the resistor I tested on: it heated up slowly, so a prediction of
+                # future temperature was necessary to avoid a significant overshoot
                 # Find a linear fit for the last 30 data points
-                past_time = -1 * min(len(self.channelData[self.dac][0]), 30)
-                coeffs = np.polyfit(self.channelData[self.dac][0][past_time:], self.channelData[self.dac][1][past_time:], 1)
+                # past_time = -1 * min(len(self.channelData[self.dac][0]), 30)
+                # coeffs = np.polyfit(self.channelData[self.dac][0][past_time:], self.channelData[self.dac][1][past_time:], 1)
 
                 # Use the linear fit  to predict the temperature 15 seconds in the future (since temperature has a
                 # delayed response)
-                future_t = self.channelData[self.dac][0][-1] + 15
-                pval = coeffs[0] * future_t + coeffs[1]
+                # future_t = self.channelData[self.dac][0][-1] + 15
+                # pval = coeffs[0] * future_t + coeffs[1]
 
                 # Calculate the new current using pid
-                change = self.pid(pval)
+                # change = self.pid(pval)
+
+                # This is for the oven: no prediction necessary
+                change = self.pid(self.channelData[self.dac][1][-1])
             else:
                 self.current_button.setText('Current Disabled')
                 change = 0
@@ -270,9 +276,9 @@ class BakingLogGui(Ui_MainWindow):
             self.pressureData[1].append(0)
 
         # Enforce boundaries on the current to avoid negative or too high current
-        if self.pressureData[1][-1] > 1637 or self.pressureData[1][-1] < 0:
+        if self.pressureData[1][-1] > self.max_current / 10 * 4096 or self.pressureData[1][-1] < 0:
             print('current bounds exceeded')
-        self.pressureData[1][-1] = max(min((self.pressureData[1][-1]), 1637), 0)
+        self.pressureData[1][-1] = max(min((self.pressureData[1][-1]), self.max_current / 10 * 4096), 0)
         print('Current: ' + str(self.pressureData[1][-1]))
 
         # Update the output value to reflect the new current (and add 4096 to reflect dac1, if applicable)

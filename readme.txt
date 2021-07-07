@@ -1,0 +1,1 @@
+Note: when using this program on a new computer, open device manager to find the COM port the arduino is on. Then change the COM port in SerialManager.py to reflect where the arduino is.
