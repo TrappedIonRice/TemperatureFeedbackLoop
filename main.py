@@ -38,6 +38,18 @@ def k_type_fit():
     return f
 
 
+def k_type_fit_inverse():
+    volt = []
+    with open("k-type-table.txt", "r") as f:
+        lines = f.readlines()
+    for l in lines:
+        l = l.strip().split('\t')
+        volt += [(float(v)/1000)  for v in l[1:-1:1]]
+    temp = np.arange(volt.__len__())
+    f = interpolate.interp1d(temp, volt, bounds_error=False, fill_value="extrapolate")
+    return f
+
+
 class BakingLogGui(Ui_MainWindow):
 
     def __init__(self, mainwindow):
@@ -56,7 +68,7 @@ class BakingLogGui(Ui_MainWindow):
 
         # Initialize data array
         self.channelData = [[[], []] for _ in range(self.channelNum)]
-        self.pressureData = [[], []]
+        self.pressureData = [[], []]    # Actually, it is the current data
 
         # Read channel switches from file
         self.channelSwitches = self.read_channel_switches()
@@ -85,7 +97,8 @@ class BakingLogGui(Ui_MainWindow):
         # Add the temperature canvas and related widgets to the gui
         self.canvasT = MplCanvas(self, width=5, height=4, dpi=100, y_scale="linear")
         self.canvasT.axes.set_xlabel("time (s)")
-        self.canvasT.axes.set_title("Temperature ($^\circ$C)")
+        self.canvasT.axes.set_ylabel("Temperature ($^\circ$C)")
+        self.canvasT.axes.secondary_yaxis('right', functions=(self.celsius_to_volts, self.volts_to_celsius)).set_ylabel('Voltage (V)')
         toolbarT = NavigationToolbar(self.canvasT, mainwindow)
         layoutT = QtWidgets.QVBoxLayout()
 
@@ -102,6 +115,8 @@ class BakingLogGui(Ui_MainWindow):
 
         layoutT.addWidget(toolbarT)
         layoutT.addWidget(self.canvasT)
+
+        self.temp_labels = ['Oven 1', 'Oven 2', 'Fluorescence', 'Laser Intensity', 'ch5', 'ch6']
 
 
         # Add the pressure canvas and related widgets to the gui
@@ -140,15 +155,25 @@ class BakingLogGui(Ui_MainWindow):
 
         # Thermocouple
         self.f = k_type_fit()
+        self.f_inv = k_type_fit_inverse()
         self.gain = [6.46159613e+01, 64.85970839, 64.33, 64.33, 64.33, 64.33]
         self.offset = [-6.32907620e-02, -0.0699907, -0.076, -0.076, -0.076, -0.076]
 
         # Feedback loop parameters
-        self.setPointInput.setText('200')
+        self.setPointInput.setText('320')
         self.target_temp = int(self.setPointInput.text())
-        self.max_current = 4.15
-        self.pid = PID(100.0, 0.6, 5.0, setpoint=self.target_temp)
+        self.max_current = 5.00
+        # self.pid = PID(100.0, 1.2, 5.0, setpoint=self.target_temp)
+        self.pid = PID(70.0,0.4, 0.0, setpoint=self.target_temp)
         self.pid.output_limits = (0, self.max_current / 10 * 4096)
+
+        self.voltage_gain = 1000
+
+    def volts_to_celsius(self, x):
+        return x * self.voltage_gain
+
+    def celsius_to_volts(self, x):
+        return x / self.voltage_gain
 
     # Read channel switches from file
     def read_channel_switches(self):
@@ -215,7 +240,10 @@ class BakingLogGui(Ui_MainWindow):
         for i in range(self.channelNum):
             if self.channelSwitches[i] > 0:
                 self.channelData[i][0] += [t]
-                T = self.f((v[i] - self.offset[i]) / self.gain[i])  # convert to the voltage before the amplifier
+                if i != 2 and i != 3:
+                    T = self.f((v[i] - self.offset[i]) / self.gain[i])  # convert to the voltage before the amplifier
+                else:
+                    T = v[i] * self.voltage_gain
                 self.channelData[i][1] += [T]
                 s += str(T)
             else:
@@ -238,6 +266,7 @@ class BakingLogGui(Ui_MainWindow):
         else:
             self.port_button.setText('DAC1 Active')
             self.dac = 1
+        # If the DAC button was changed, reset the current data
         if self.prev_port != self.dac:
             self.pressureData = [[], []]
             self.prev_port = self.dac
@@ -310,13 +339,17 @@ class BakingLogGui(Ui_MainWindow):
                 self.canvasT.axes.set_xbound(lower=0)
                 self.canvasT.axes.legend()
                 self.canvasT.axes.set_xlabel("time (s)")
-                self.canvasT.axes.set_title("Temperature ($^\circ$C)")
+                self.canvasT.axes.set_ylabel("Temperature ($^\circ$C)")
+                self.canvasT.axes.secondary_yaxis('right',
+                                                  functions=(self.celsius_to_volts, self.volts_to_celsius)).set_ylabel(
+                    'Voltage (V)')
                 self.canvasT.draw()
 
                 # Clear the canvas
                 self.canvasP.axes.cla()
 
                 # Plot the current data
+                # Project the 4096 bits onto 10A (max power supply current)
                 self.canvasP.axes.plot(self.pressureData[0], [x / 409.5 for x in self.pressureData[1]])
 
                 # set the lower x bound and finish building the graph
@@ -337,7 +370,10 @@ class BakingLogGui(Ui_MainWindow):
                     active_channels.append(i)
                     line = lines.pop(0)
                     line.set_data(self.channelData[i][0], self.channelData[i][1])
-                    labels.append("ch" + str(i + 1) + ": " + "%.1f" % (self.channelData[i][1][-1]) + "C")
+                    if i != 2 and i != 3:
+                        labels.append(self.temp_labels[i] + ": " + "%.1f" % (self.channelData[i][1][-1]) + "C")
+                    else:
+                        labels.append(self.temp_labels[i] + ": " + "%.3f" % (self.channelData[i][1][-1] / self.voltage_gain) + "V")
 
             # Update scaling if the temperature autoscale is toggled
             if self.button1.isChecked():
