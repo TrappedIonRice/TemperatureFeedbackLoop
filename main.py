@@ -160,14 +160,14 @@ class BakingLogGui(Ui_MainWindow):
         self.offset = [-6.32907620e-02, -0.0699907, -0.076, -0.076, -0.076, -0.076]
 
         # Feedback loop parameters
-        self.setPointInput.setText('320')
+        self.setPointInput.setText('250')
         self.target_temp = int(self.setPointInput.text())
-        self.max_current = 5.00
+        self.max_current = 8.15
         # self.pid = PID(100.0, 1.2, 5.0, setpoint=self.target_temp)
-        self.pid = PID(70.0,0.4, 0.0, setpoint=self.target_temp)
+        self.pid = PID(100, 0.7, 5.0, setpoint=self.target_temp)
         self.pid.output_limits = (0, self.max_current / 10 * 4096)
 
-        self.voltage_gain = 1000
+        self.voltage_gain = 1500
 
     def volts_to_celsius(self, x):
         return x * self.voltage_gain
@@ -240,7 +240,7 @@ class BakingLogGui(Ui_MainWindow):
         for i in range(self.channelNum):
             if self.channelSwitches[i] > 0:
                 self.channelData[i][0] += [t]
-                if i != 2 and i != 3:
+                if i != 2:
                     T = self.f((v[i] - self.offset[i]) / self.gain[i])  # convert to the voltage before the amplifier
                 else:
                     T = v[i] * self.voltage_gain
@@ -370,7 +370,7 @@ class BakingLogGui(Ui_MainWindow):
                     active_channels.append(i)
                     line = lines.pop(0)
                     line.set_data(self.channelData[i][0], self.channelData[i][1])
-                    if i != 2 and i != 3:
+                    if i != 2:
                         labels.append(self.temp_labels[i] + ": " + "%.1f" % (self.channelData[i][1][-1]) + "C")
                     else:
                         labels.append(self.temp_labels[i] + ": " + "%.3f" % (self.channelData[i][1][-1] / self.voltage_gain) + "V")
