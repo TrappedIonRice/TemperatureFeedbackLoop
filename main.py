@@ -366,7 +366,7 @@ class BakingLogGui(Ui_MainWindow):
 
             # Reset the data and update the labels
             for i in range(self.channelNum):
-                if self.channelSwitches[i] > 0 and len(self.channelData[i][1]) > 0:
+                if self.channelSwitches[i] > 0 and len(self.channelData[i][1]) > 0 and len(lines) > 0:
                     active_channels.append(i)
                     line = lines.pop(0)
                     line.set_data(self.channelData[i][0], self.channelData[i][1])
@@ -414,6 +414,10 @@ class BakingLogGui(Ui_MainWindow):
             self.canvasP.draw()
             self.canvasP.flush_events()
 
+    def save_plots(self):
+        self.canvasT.figure.savefig('temp_graph.png')
+        self.canvasP.figure.savefig('current_graph.png')
+
     def save_file(self):
         options = QtWidgets.QFileDialog.Options()
         options |= QtWidgets.QFileDialog.DontUseNativeDialog
@@ -427,11 +431,34 @@ class BakingLogGui(Ui_MainWindow):
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     app.setStyleSheet(qdarkstyle.load_stylesheet_pyqt5())
+
+    # Create a new thread to receive input from the arduino, so it can run simultaneously as other processes
+    thread = QtCore.QThread()
+
     MainWindow = QtWidgets.QMainWindow()
     ui = BakingLogGui(MainWindow)
     MainWindow.show()
-    manager = SerialManagerArduino(ui.check_logging_status)
-    manager.valueChanged.connect(ui.get_arduino)
-    manager.update.connect(ui.update_current)
+    # MainWindow.showMaximized()
+
+    # Create a SerialManagerArduino to manage the arduino input
+    manager = SerialManagerArduino(ui.check_logging_status, ui=ui)
+
+    # Move manager to the new thread
+    manager.moveToThread(thread)
+
+    # Call these methods when the thread starts and finishes
+    thread.started.connect(manager.initialize_in_thread)
+    thread.finished.connect(thread.deleteLater)
+
+    # Start the thread here, so we can receive input from the arduino
+    thread.start()
+
     app.exec_()
+
+    # Quit the thread after the program finishes
+    thread.quit()
+
+    # Save the plots from the finished run
+    ui.save_plots()
+
     sys.exit()

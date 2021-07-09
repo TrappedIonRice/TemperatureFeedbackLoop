@@ -7,9 +7,16 @@ class SerialManagerArduino(QtCore.QObject):
     valueChanged = QtCore.pyqtSignal(list)
     update = QtCore.pyqtSignal(QtCore.QObject)
 
-    def __init__(self, check_fn, parent=None):
+    def __init__(self, check_fn, parent=None, ui=None):
         super().__init__(parent)
 
+        self.check = check_fn   # Check if the if the process has been enabled
+        self.current_value = 0  # The current output value of the current
+        self.count = 1
+
+        self.ui = ui    # This is the instance of BakingLogGUI from main.py that handles the plotting
+
+    def initialize_in_thread(self):
         # Change the COM port for each computer this program is run on (since the arduino may have a different port)
         self.serial_port = QtSerialPort.QSerialPort("COM9")
         self.serial_port.setBaudRate(QtSerialPort.QSerialPort.Baud9600)
@@ -17,8 +24,9 @@ class SerialManagerArduino(QtCore.QObject):
         self.serial_port.readyRead.connect(self.handle_ready_read)
         self.serial_port.open(QtCore.QIODevice.ReadWrite)
 
-        self.check = check_fn   # Check if the if the process has been enabled
-        self.current_value = 0  # The current output value of the current
+        # Connect the valueChanged and update pyqtSignals to the get_arduino and update_current methods in BakingLogGUI
+        self.valueChanged.connect(self.ui.get_arduino)
+        self.update.connect(self.ui.update_current)
 
     def handle_ready_read(self):
         while self.serial_port.canReadLine():
@@ -26,7 +34,8 @@ class SerialManagerArduino(QtCore.QObject):
             # Read the input from the serial port
             codec = QtCore.QTextCodec.codecForName("UTF-8")
             line = self.serial_port.readLine()
-            print(line)
+            print(str(self.count) + ':' + str(line))
+            self.count += 1
 
             line = codec.toUnicode(line).strip().strip("\x00")
 
